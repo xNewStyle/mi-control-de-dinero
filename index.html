@@ -116,6 +116,10 @@
       font-weight: 800;
       cursor: pointer;
     }
+    button:disabled {
+      opacity: .6;
+      cursor: not-allowed;
+    }
     .btn-secondary {
       background: #374151;
     }
@@ -217,8 +221,9 @@
     <header>
       <h1>Mi Control de Dinero</h1>
       <div class="status">
-        Estado: <span id="connectionStatus"></span> · Tus datos se guardan en este celular.
+        Estado: <span id="connectionStatus"></span> · Datos sincronizados con Render.
       </div>
+      <div class="status" id="syncStatus">Cargando datos...</div>
     </header>
 
     <section id="installBox" class="card install-box">
@@ -287,7 +292,7 @@
           <textarea id="note" placeholder="Ej. compré comida, pago de cliente, material para tienda..."></textarea>
         </div>
 
-        <button type="submit">Guardar movimiento</button>
+        <button id="saveButton" type="submit">Guardar movimiento</button>
       </form>
     </section>
 
@@ -320,18 +325,15 @@
   </div>
 
 <script>
-const STORAGE_KEY = "mi_control_dinero_movimientos_v1";
-let movements = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+const API_URL = "https://contabilidad-api-oxdb.onrender.com";
+
+let movements = [];
 let deferredInstallPrompt = null;
 
 const $ = (id) => document.getElementById(id);
 
 function today() {
   return new Date().toISOString().slice(0, 10);
-}
-
-function save() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(movements));
 }
 
 function money(value) {
@@ -348,6 +350,75 @@ function escapeHTML(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function apiToMovement(m) {
+  return {
+    id: Number(m.id),
+    date: m.fecha,
+    type: m.tipo === "ingreso" ? "income" : "expense",
+    amount: Number(m.monto || 0),
+    category: m.categoria || "",
+    note: m.descripcion || "",
+    origen: m.origen || "manual",
+    nota_id: m.nota_id || "",
+    comprobante: m.comprobante || ""
+  };
+}
+
+function movementToApi(m) {
+  return {
+    fecha: m.date,
+    tipo: m.type === "income" ? "ingreso" : "gasto",
+    categoria: m.category,
+    descripcion: m.note,
+    monto: m.amount,
+    origen: "manual"
+  };
+}
+
+async function loadMovements() {
+  $("syncStatus").textContent = "Sincronizando con Render...";
+  try {
+    const res = await fetch(`${API_URL}/api/movimientos`);
+    if (!res.ok) throw new Error("No se pudo cargar la información.");
+    const data = await res.json();
+    movements = data.map(apiToMovement);
+    $("syncStatus").textContent = `Sincronizado: ${movements.length} movimientos.`;
+    render();
+  } catch (error) {
+    $("syncStatus").textContent = "No se pudo sincronizar. Revisa internet o la API.";
+    alert("No se pudo cargar la contabilidad desde Render. Revisa que la API esté activa.");
+    render();
+  }
+}
+
+async function createMovement(movement) {
+  const res = await fetch(`${API_URL}/api/movimientos`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(movementToApi(movement))
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || "No se pudo guardar.");
+  }
+
+  return await res.json();
+}
+
+async function removeMovement(id) {
+  const res = await fetch(`${API_URL}/api/movimientos/${id}`, {
+    method: "DELETE"
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || "No se pudo eliminar.");
+  }
+
+  return await res.json();
 }
 
 function filteredMovements() {
@@ -395,12 +466,13 @@ function render() {
     const amountClass = m.type === "income" ? "income" : "expense";
     const icon = m.type === "income" ? "💵" : "🧾";
     const typeText = m.type === "income" ? "Ingreso" : "Gasto";
+    const origenText = m.origen && m.origen !== "manual" ? ` · ${m.origen}` : "";
     return `
       <article class="movement">
         <div class="badge">${icon}</div>
         <div>
           <h3>${escapeHTML(m.category)}</h3>
-          <p>${m.date} · ${typeText}</p>
+          <p>${m.date} · ${typeText}${origenText}</p>
           <p>${escapeHTML(m.note)}</p>
         </div>
         <div style="text-align:right">
@@ -412,11 +484,17 @@ function render() {
   }).join("");
 }
 
-function deleteMovement(id) {
+async function deleteMovement(id) {
   if (!confirm("¿Eliminar este movimiento?")) return;
-  movements = movements.filter(m => m.id !== id);
-  save();
-  render();
+
+  try {
+    await removeMovement(id);
+    movements = movements.filter(m => m.id !== id);
+    render();
+    $("syncStatus").textContent = "Movimiento eliminado y sincronizado.";
+  } catch (error) {
+    alert("No se pudo eliminar. Intenta otra vez.");
+  }
 }
 
 function updateConnectionStatus() {
@@ -427,7 +505,7 @@ function updateConnectionStatus() {
 
 $("date").value = today();
 
-$("movementForm").addEventListener("submit", (event) => {
+$("movementForm").addEventListener("submit", async (event) => {
   event.preventDefault();
 
   const movement = {
@@ -444,14 +522,22 @@ $("movementForm").addEventListener("submit", (event) => {
     return;
   }
 
-  movements.push(movement);
-  save();
+  $("saveButton").disabled = true;
+  $("saveButton").textContent = "Guardando...";
 
-  $("amount").value = "";
-  $("note").value = "";
-  $("category").focus();
-
-  render();
+  try {
+    await createMovement(movement);
+    $("amount").value = "";
+    $("note").value = "";
+    $("category").focus();
+    await loadMovements();
+    $("syncStatus").textContent = "Movimiento guardado y sincronizado.";
+  } catch (error) {
+    alert("No se pudo guardar en Render. Revisa internet o la API.");
+  } finally {
+    $("saveButton").disabled = false;
+    $("saveButton").textContent = "Guardar movimiento";
+  }
 });
 
 $("search").addEventListener("input", render);
@@ -460,7 +546,7 @@ $("toDate").addEventListener("change", render);
 
 $("exportButton").addEventListener("click", () => {
   const rows = filteredMovements();
-  const header = ["Fecha", "Tipo", "Categoria", "Nota", "Monto"];
+  const header = ["Fecha", "Tipo", "Categoria", "Nota", "Monto", "Origen", "Nota ID"];
   const csvRows = [
     header,
     ...rows.map(m => [
@@ -468,7 +554,9 @@ $("exportButton").addEventListener("click", () => {
       m.type === "income" ? "Ingreso" : "Gasto",
       m.category,
       m.note || "",
-      m.amount
+      m.amount,
+      m.origen || "",
+      m.nota_id || ""
     ])
   ];
 
@@ -485,14 +573,14 @@ $("exportButton").addEventListener("click", () => {
   URL.revokeObjectURL(url);
 });
 
-$("clearButton").addEventListener("click", () => {
-  if (!confirm("¿Seguro que quieres borrar todos los movimientos?")) return;
-  movements = [];
-  save();
-  render();
+$("clearButton").addEventListener("click", async () => {
+  alert("Por seguridad, borrar todo está desactivado cuando los datos están sincronizados. Elimina movimientos uno por uno.");
 });
 
-window.addEventListener("online", updateConnectionStatus);
+window.addEventListener("online", () => {
+  updateConnectionStatus();
+  loadMovements();
+});
 window.addEventListener("offline", updateConnectionStatus);
 
 window.addEventListener("beforeinstallprompt", (event) => {
@@ -516,7 +604,7 @@ if ("serviceWorker" in navigator) {
 }
 
 updateConnectionStatus();
-render();
+loadMovements();
 </script>
 </body>
 </html>
