@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mi Control de Dinero</title>
+  <meta name="theme-color" content="#2563eb">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --line: #e5e7eb;
+      --accent: #2563eb;
+      --income: #047857;
+      --expense: #b91c1c;
+      --warning: #92400e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 14px;
+    }
+    .app {
+      max-width: 720px;
+      margin: 0 auto;
+      padding-bottom: 80px;
+    }
+    header {
+      position: sticky;
+      top: 0;
+      background: linear-gradient(180deg, var(--bg) 80%, rgba(244,247,251,0));
+      padding: 10px 0 14px;
+      z-index: 2;
+    }
+    h1 {
+      margin: 0;
+      font-size: 25px;
+    }
+    .status {
+      margin-top: 6px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .offline {
+      color: var(--warning);
+      font-weight: 700;
+    }
+    .online {
+      color: var(--income);
+      font-weight: 700;
+    }
+    .summary {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin: 12px 0;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: 0 3px 12px rgba(15,23,42,.06);
+    }
+    .metric-title {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+    .metric {
+      font-size: 27px;
+      font-weight: 800;
+    }
+    .income { color: var(--income); }
+    .expense { color: var(--expense); }
+    .balance.good { color: var(--income); }
+    .balance.bad { color: var(--expense); }
+    form {
+      display: grid;
+      gap: 10px;
+    }
+    label {
+      font-size: 13px;
+      color: var(--muted);
+      display: block;
+      margin-bottom: 5px;
+    }
+    input, select, button, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      padding: 13px;
+      font: inherit;
+      background: white;
+    }
+    textarea {
+      resize: vertical;
+      min-height: 45px;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    button {
+      border: 0;
+      color: white;
+      background: var(--accent);
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .btn-secondary {
+      background: #374151;
+    }
+    .btn-danger {
+      background: #991b1b;
+    }
+    .btn-light {
+      background: #e5e7eb;
+      color: #111827;
+    }
+    .toolbar {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      margin: 12px 0;
+    }
+    .movement {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: start;
+      border-bottom: 1px solid var(--line);
+      padding: 13px 0;
+    }
+    .movement:last-child {
+      border-bottom: 0;
+    }
+    .badge {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      font-size: 20px;
+      background: #eef2ff;
+    }
+    .movement h3 {
+      margin: 0;
+      font-size: 16px;
+    }
+    .movement p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .amount {
+      font-weight: 900;
+      white-space: nowrap;
+      font-size: 15px;
+    }
+    .delete {
+      margin-top: 6px;
+      font-size: 12px;
+      padding: 6px 9px;
+      border-radius: 9px;
+      background: #fee2e2;
+      color: #991b1b;
+      border: 0;
+    }
+    .empty {
+      color: var(--muted);
+      text-align: center;
+      padding: 22px;
+    }
+    .install-box {
+      display: none;
+      margin: 10px 0;
+    }
+    .hint {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .footer-actions {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(244,247,251,.92);
+      backdrop-filter: blur(10px);
+      padding: 10px 14px;
+      border-top: 1px solid var(--line);
+    }
+    .footer-actions .inner {
+      max-width: 720px;
+      margin: auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    @media (min-width: 700px) {
+      .summary { grid-template-columns: repeat(3, 1fr); }
+      .toolbar { grid-template-columns: 1fr 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <h1>Mi Control de Dinero</h1>
+      <div class="status">
+        Estado: <span id="connectionStatus"></span> · Tus datos se guardan en este celular.
+      </div>
+    </header>
+
+    <section id="installBox" class="card install-box">
+      <strong>Instala la app en tu celular</strong>
+      <p class="hint">Tócala como app normal desde tu pantalla de inicio.</p>
+      <button id="installButton">Instalar app</button>
+    </section>
+
+    <section class="summary">
+      <div class="card">
+        <div class="metric-title">Ingresos</div>
+        <div id="incomeTotal" class="metric income">$0.00</div>
+      </div>
+      <div class="card">
+        <div class="metric-title">Gastos / egresos</div>
+        <div id="expenseTotal" class="metric expense">$0.00</div>
+      </div>
+      <div class="card">
+        <div class="metric-title">Balance</div>
+        <div id="balanceTotal" class="metric balance">$0.00</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Registrar movimiento</h2>
+      <form id="movementForm">
+        <div class="row">
+          <div>
+            <label for="date">Fecha</label>
+            <input id="date" type="date" required>
+          </div>
+          <div>
+            <label for="type">Tipo</label>
+            <select id="type" required>
+              <option value="income">Ingreso</option>
+              <option value="expense">Gasto / egreso</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="amount">Monto</label>
+            <input id="amount" type="number" min="0.01" step="0.01" placeholder="0.00" required>
+          </div>
+          <div>
+            <label for="category">Categoría</label>
+            <input id="category" list="categories" placeholder="Comida, venta, renta..." required>
+            <datalist id="categories">
+              <option value="Ventas">
+              <option value="Comida">
+              <option value="Transporte">
+              <option value="Renta">
+              <option value="Servicios">
+              <option value="Inventario">
+              <option value="Hilos">
+              <option value="Ahorro">
+              <option value="Deuda">
+              <option value="Otro">
+            </datalist>
+          </div>
+        </div>
+
+        <div>
+          <label for="note">Nota</label>
+          <textarea id="note" placeholder="Ej. compré comida, pago de cliente, material para tienda..."></textarea>
+        </div>
+
+        <button type="submit">Guardar movimiento</button>
+      </form>
+    </section>
+
+    <section class="toolbar">
+      <div>
+        <label for="search">Buscar</label>
+        <input id="search" placeholder="Categoría o nota">
+      </div>
+      <div>
+        <label for="fromDate">Desde</label>
+        <input id="fromDate" type="date">
+      </div>
+      <div>
+        <label for="toDate">Hasta</label>
+        <input id="toDate" type="date">
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Movimientos</h2>
+      <div id="movementsList"></div>
+    </section>
+  </main>
+
+  <div class="footer-actions">
+    <div class="inner">
+      <button id="exportButton" class="btn-secondary">Exportar CSV</button>
+      <button id="clearButton" class="btn-danger">Borrar todo</button>
+    </div>
+  </div>
+
+<script>
+const STORAGE_KEY = "mi_control_dinero_movimientos_v1";
+let movements = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+let deferredInstallPrompt = null;
+
+const $ = (id) => document.getElementById(id);
+
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(movements));
+}
+
+function money(value) {
+  return new Intl.NumberFormat("es-MX", {
+    style: "currency",
+    currency: "MXN"
+  }).format(Number(value || 0));
+}
+
+function escapeHTML(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function filteredMovements() {
+  const text = $("search").value.trim().toLowerCase();
+  const from = $("fromDate").value;
+  const to = $("toDate").value;
+
+  return movements
+    .filter(m => {
+      const matchText =
+        !text ||
+        m.category.toLowerCase().includes(text) ||
+        (m.note || "").toLowerCase().includes(text);
+
+      const matchFrom = !from || m.date >= from;
+      const matchTo = !to || m.date <= to;
+
+      return matchText && matchFrom && matchTo;
+    })
+    .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
+}
+
+function render() {
+  const list = filteredMovements();
+  const income = list
+    .filter(m => m.type === "income")
+    .reduce((sum, m) => sum + Number(m.amount), 0);
+  const expense = list
+    .filter(m => m.type === "expense")
+    .reduce((sum, m) => sum + Number(m.amount), 0);
+  const balance = income - expense;
+
+  $("incomeTotal").textContent = money(income);
+  $("expenseTotal").textContent = money(expense);
+  $("balanceTotal").textContent = money(balance);
+  $("balanceTotal").className = "metric balance " + (balance >= 0 ? "good" : "bad");
+
+  if (!list.length) {
+    $("movementsList").innerHTML = '<div class="empty">Aún no hay movimientos registrados.</div>';
+    return;
+  }
+
+  $("movementsList").innerHTML = list.map(m => {
+    const sign = m.type === "income" ? "+" : "-";
+    const amountClass = m.type === "income" ? "income" : "expense";
+    const icon = m.type === "income" ? "💵" : "🧾";
+    const typeText = m.type === "income" ? "Ingreso" : "Gasto";
+    return `
+      <article class="movement">
+        <div class="badge">${icon}</div>
+        <div>
+          <h3>${escapeHTML(m.category)}</h3>
+          <p>${m.date} · ${typeText}</p>
+          <p>${escapeHTML(m.note)}</p>
+        </div>
+        <div style="text-align:right">
+          <div class="amount ${amountClass}">${sign}${money(m.amount)}</div>
+          <button class="delete" onclick="deleteMovement(${m.id})">Eliminar</button>
+        </div>
+      </article>
+    `;
+  }).join("");
+}
+
+function deleteMovement(id) {
+  if (!confirm("¿Eliminar este movimiento?")) return;
+  movements = movements.filter(m => m.id !== id);
+  save();
+  render();
+}
+
+function updateConnectionStatus() {
+  const online = navigator.onLine;
+  $("connectionStatus").textContent = online ? "con internet" : "sin internet";
+  $("connectionStatus").className = online ? "online" : "offline";
+}
+
+$("date").value = today();
+
+$("movementForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+
+  const movement = {
+    id: Date.now(),
+    date: $("date").value,
+    type: $("type").value,
+    amount: Number($("amount").value),
+    category: $("category").value.trim(),
+    note: $("note").value.trim()
+  };
+
+  if (!movement.date || !movement.category || movement.amount <= 0) {
+    alert("Revisa la fecha, categoría y monto.");
+    return;
+  }
+
+  movements.push(movement);
+  save();
+
+  $("amount").value = "";
+  $("note").value = "";
+  $("category").focus();
+
+  render();
+});
+
+$("search").addEventListener("input", render);
+$("fromDate").addEventListener("change", render);
+$("toDate").addEventListener("change", render);
+
+$("exportButton").addEventListener("click", () => {
+  const rows = filteredMovements();
+  const header = ["Fecha", "Tipo", "Categoria", "Nota", "Monto"];
+  const csvRows = [
+    header,
+    ...rows.map(m => [
+      m.date,
+      m.type === "income" ? "Ingreso" : "Gasto",
+      m.category,
+      m.note || "",
+      m.amount
+    ])
+  ];
+
+  const csv = csvRows
+    .map(row => row.map(cell => `"${String(cell).replaceAll('"', '""')}"`).join(","))
+    .join("\n");
+
+  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "mi_control_de_dinero.csv";
+  link.click();
+  URL.revokeObjectURL(url);
+});
+
+$("clearButton").addEventListener("click", () => {
+  if (!confirm("¿Seguro que quieres borrar todos los movimientos?")) return;
+  movements = [];
+  save();
+  render();
+});
+
+window.addEventListener("online", updateConnectionStatus);
+window.addEventListener("offline", updateConnectionStatus);
+
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  $("installBox").style.display = "block";
+});
+
+$("installButton").addEventListener("click", async () => {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  $("installBox").style.display = "none";
+});
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js");
+  });
+}
+
+updateConnectionStatus();
+render();
+</script>
+</body>
+</html>
