@@ -30,7 +30,7 @@
     .app {
       max-width: 720px;
       margin: 0 auto;
-      padding-bottom: 80px;
+      padding-bottom: 90px;
     }
     header {
       position: sticky;
@@ -47,6 +47,7 @@
       margin-top: 6px;
       font-size: 13px;
       color: var(--muted);
+      word-break: break-word;
     }
     .offline {
       color: var(--warning);
@@ -120,12 +121,8 @@
       opacity: .6;
       cursor: not-allowed;
     }
-    .btn-secondary {
-      background: #374151;
-    }
-    .btn-danger {
-      background: #991b1b;
-    }
+    .btn-secondary { background: #374151; }
+    .btn-danger { background: #991b1b; }
     .btn-light {
       background: #e5e7eb;
       color: #111827;
@@ -144,9 +141,7 @@
       border-bottom: 1px solid var(--line);
       padding: 13px 0;
     }
-    .movement:last-child {
-      border-bottom: 0;
-    }
+    .movement:last-child { border-bottom: 0; }
     .badge {
       width: 42px;
       height: 42px;
@@ -224,6 +219,7 @@
         Estado: <span id="connectionStatus"></span> · Datos sincronizados con Render.
       </div>
       <div class="status" id="syncStatus">Cargando datos...</div>
+      <div class="status" id="apiStatus"></div>
     </header>
 
     <section id="installBox" class="card install-box">
@@ -312,6 +308,11 @@
     </section>
 
     <section class="card">
+      <button type="button" onclick="loadMovements(true)">Forzar sincronización</button>
+      <p class="hint">Si no ves los últimos datos, toca este botón.</p>
+    </section>
+
+    <section class="card">
       <h2>Movimientos</h2>
       <div id="movementsList"></div>
     </section>
@@ -377,17 +378,35 @@ function movementToApi(m) {
   };
 }
 
-async function loadMovements() {
-  $("syncStatus").textContent = "Sincronizando con Render...";
+async function loadMovements(manual=false) {
+  const apiEndpoint = `${API_URL}/api/movimientos?_=${Date.now()}`;
+  $("apiStatus").textContent = `API: ${API_URL}`;
+  $("syncStatus").textContent = manual ? "Forzando sincronización..." : "Sincronizando con Render...";
+
   try {
-    const res = await fetch(`${API_URL}/api/movimientos`);
-    if (!res.ok) throw new Error("No se pudo cargar la información.");
+    const res = await fetch(apiEndpoint, {
+      method: "GET",
+      cache: "no-store",
+      headers: {
+        "Cache-Control": "no-cache"
+      }
+    });
+
+    if (!res.ok) {
+      throw new Error(`Error HTTP ${res.status}`);
+    }
+
     const data = await res.json();
+
+    if (!Array.isArray(data)) {
+      throw new Error("La API no respondió una lista.");
+    }
+
     movements = data.map(apiToMovement);
     $("syncStatus").textContent = `Sincronizado: ${movements.length} movimientos.`;
     render();
   } catch (error) {
-    $("syncStatus").textContent = "No se pudo sincronizar. Revisa internet o la API.";
+    $("syncStatus").textContent = `No se pudo sincronizar: ${error.message}`;
     alert("No se pudo cargar la contabilidad desde Render. Revisa que la API esté activa.");
     render();
   }
@@ -396,7 +415,11 @@ async function loadMovements() {
 async function createMovement(movement) {
   const res = await fetch(`${API_URL}/api/movimientos`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-cache"
+    },
     body: JSON.stringify(movementToApi(movement))
   });
 
@@ -410,7 +433,8 @@ async function createMovement(movement) {
 
 async function removeMovement(id) {
   const res = await fetch(`${API_URL}/api/movimientos/${id}`, {
-    method: "DELETE"
+    method: "DELETE",
+    cache: "no-store"
   });
 
   if (!res.ok) {
@@ -489,8 +513,7 @@ async function deleteMovement(id) {
 
   try {
     await removeMovement(id);
-    movements = movements.filter(m => m.id !== id);
-    render();
+    await loadMovements(true);
     $("syncStatus").textContent = "Movimiento eliminado y sincronizado.";
   } catch (error) {
     alert("No se pudo eliminar. Intenta otra vez.");
@@ -530,7 +553,7 @@ $("movementForm").addEventListener("submit", async (event) => {
     $("amount").value = "";
     $("note").value = "";
     $("category").focus();
-    await loadMovements();
+    await loadMovements(true);
     $("syncStatus").textContent = "Movimiento guardado y sincronizado.";
   } catch (error) {
     alert("No se pudo guardar en Render. Revisa internet o la API.");
@@ -579,7 +602,7 @@ $("clearButton").addEventListener("click", async () => {
 
 window.addEventListener("online", () => {
   updateConnectionStatus();
-  loadMovements();
+  loadMovements(true);
 });
 window.addEventListener("offline", updateConnectionStatus);
 
@@ -598,8 +621,13 @@ $("installButton").addEventListener("click", async () => {
 });
 
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js");
+  window.addEventListener("load", async () => {
+    try {
+      const reg = await navigator.serviceWorker.register("./sw.js?v=20260616");
+      await reg.update();
+    } catch (e) {
+      console.log("No se pudo registrar service worker", e);
+    }
   });
 }
 
